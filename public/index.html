@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inventário</title>
+<style>
+  :root { --bg:#f2f3f0; --card:#fff; --tx:#1c211e; --mut:#68716c; --ac:#1f6f4a; --bad:#b3261e; --bd:#d8dcd7; --okbg:#e3f3ea; --badbg:#fbe4e1; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#13171a; --card:#1c2225; --tx:#e7ebe8; --mut:#9aa5a0; --ac:#4cc38a; --bad:#ff8a80; --bd:#2e383c; --okbg:#173326; --badbg:#3b1d1a; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; font:16px/1.4 system-ui,sans-serif; background:var(--bg); color:var(--tx); }
+  main { max-width:960px; margin:0 auto; padding:16px; }
+  header { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+  h1 { font-size:1.3rem; margin:0; }
+  section { background:var(--card); border:1px solid var(--bd); border-radius:8px; padding:14px; margin-bottom:14px; }
+  button, input, a.btn { font:inherit; padding:9px 12px; border-radius:6px; border:1px solid var(--bd); background:var(--card); color:var(--tx); text-decoration:none; }
+  button.pri, a.btn.pri { background:var(--ac); color:#fff; border-color:var(--ac); cursor:pointer; }
+  button, a.btn { cursor:pointer; }
+  button:focus-visible, input:focus-visible, a.btn:focus-visible { outline:3px solid var(--ac); outline-offset:2px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .mut { color:var(--mut); font-size:.9rem; }
+  #scan { flex:1; min-width:220px; font-size:1.4rem; padding:14px; border:2px solid var(--ac); }
+  #qtdBip { width:90px; } #contador { width:170px; }
+  #feedback { margin-top:12px; padding:14px; border-radius:6px; background:var(--bg); min-height:84px; }
+  #feedback.ok { background:var(--okbg); border-left:6px solid var(--ac); }
+  #feedback.erro { background:var(--badbg); border-left:6px solid var(--bad); }
+  #feedback .cod { font-size:1.3rem; font-weight:700; }
+  #feedback .big { font-size:2rem; font-weight:700; }
+  table { width:100%; border-collapse:collapse; font-size:.93rem; }
+  th, td { text-align:left; padding:6px 5px; border-bottom:1px solid var(--bd); }
+  .n { text-align:right; }
+  .ok-t { color:var(--ac); } .div-t { color:var(--bad); font-weight:700; } .nc-t { color:var(--mut); }
+  .scroll { overflow-x:auto; max-height:55vh; overflow-y:auto; }
+  tr.click { cursor:pointer; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Inventário</h1>
+    <span id="resumo" class="mut"></span>
+  </header>
+
+  <section>
+    <div class="row">
+      <input id="scan" placeholder="Bipe aqui" autocomplete="off" autofocus>
+      <label class="mut">Qtd por bip <input id="qtdBip" type="number" min="0" step="any" value="1"></label>
+      <input id="contador" placeholder="Seu nome">
+    </div>
+    <div id="feedback" role="status" aria-live="polite"><span class="mut">Bipe uma etiqueta para começar.</span></div>
+    <div class="row" style="margin-top:10px">
+      <button id="btnDesfazer">Desfazer último</button>
+      <span class="mut">Para corrigir um item, clique nele na tabela e digite o total.</span>
+    </div>
+  </section>
+
+  <section>
+    <div class="row">
+      <label class="btn pri" for="arq" tabindex="0">Importar CSV do Protheus</label>
+      <input id="arq" type="file" accept=".csv,.txt" hidden>
+      <a class="btn" href="/api/etiquetas.pdf">Baixar etiquetas (PDF)</a>
+      <a class="btn pri" href="/api/exportar.xlsx">Exportar planilha (.xlsx)</a>
+      <button id="btnZerar">Zerar contagens</button>
+    </div>
+  </section>
+
+  <section>
+    <div class="row" style="margin-bottom:10px">
+      <input id="busca" placeholder="Filtrar por código ou descrição">
+      <label class="mut"><input type="checkbox" id="soContados"> só contados</label>
+      <label class="mut"><input type="checkbox" id="soDiv"> só divergentes/não contados</label>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Código</th><th>Descrição</th><th class="n">Sistema</th><th class="n">Contado</th><th class="n">Dif.</th></tr></thead>
+        <tbody id="tb"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+let itens = [];
+
+// ---------- helpers ----------
+async function api(url, body) {
+  const r = await fetch(url, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.erro || 'Erro ' + r.status);
+  return d;
+}
+function beep(ok) {
+  try {
+    const a = new (window.AudioContext || window.webkitAudioContext)();
+    const o = a.createOscillator(), g = a.createGain();
+    o.frequency.value = ok ? 880 : 220; g.gain.value = 0.15;
+    o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime + (ok ? 0.08 : 0.3));
+  } catch (e) {}
+}
+function feedback(tipo, html) { const f = $('feedback'); f.className = tipo; f.innerHTML = html; }
+function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+function nomeContador() { return $('contador').value.trim(); }
+
+try { $('contador').value = localStorage.getItem('inv_contador') || ''; } catch (e) {}
+$('contador').addEventListener('input', () => { try { localStorage.setItem('inv_contador', $('contador').value); } catch (e) {} });
+
+// ---------- bipar ----------
+$('scan').addEventListener('keydown', async e => {
+  if (e.key !== 'Enter') return;
+  const codigo = $('scan').value.trim();
+  $('scan').value = '';
+  if (!codigo) return;
+  try {
+    const { item } = await api('/api/bipar', { codigo, qtd: Number($('qtdBip').value || 1), contador: nomeContador() });
+    beep(true);
+    const dif = item.contado - item.saldo;
+    feedback('ok', `<div class="cod">${esc(item.codigo)}</div><div>${esc(item.descricao)}</div>
+      <div class="big">${item.contado}</div><div class="mut">Sistema: ${item.saldo} · Diferença: ${dif > 0 ? '+' : ''}${dif}</div>`);
+  } catch (err) {
+    beep(false);
+    feedback('erro', `<div class="cod">${esc(codigo)}</div><div>${esc(err.message)}</div>`);
+  }
+  carregar();
+});
+
+// ---------- ações ----------
+$('btnDesfazer').addEventListener('click', async () => {
+  try {
+    const { desfeito } = await api('/api/desfazer', {});
+    feedback('ok', `Desfeito: ${esc(desfeito.codigo)} voltou para ${desfeito.antes ?? 'não contado'}.`);
+  } catch (err) { feedback('erro', esc(err.message)); }
+  carregar();
+});
+
+$('btnZerar').addEventListener('click', async () => {
+  if (!confirm('Zerar TODAS as contagens e o histórico? Os itens importados continuam.')) return;
+  await api('/api/zerar', {}); feedback('', 'Contagens zeradas.'); carregar();
+});
+
+$('arq').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  if (itens.some(i => i.contado !== null) && !confirm('Já existem contagens. Importar de novo mantém as contagens dos códigos que continuarem na lista. Continuar?')) { e.target.value = ''; return; }
+  try {
+    const { importados } = await api('/api/importar', { csv: await f.text() });
+    feedback('ok', importados + ' itens importados.');
+  } catch (err) { feedback('erro', esc(err.message)); }
+  e.target.value = ''; carregar();
+});
+
+async function corrigir(it) {
+  const v = prompt(`Total contado de ${it.codigo} (${it.descricao}):`, it.contado ?? '');
+  if (v === null || v.trim() === '') return;
+  try { await api('/api/definir', { codigo: it.codigo, qtd: Number(v.replace(',', '.')), contador: nomeContador() }); }
+  catch (err) { feedback('erro', esc(err.message)); }
+  carregar();
+}
+
+// ---------- tabela ----------
+function render() {
+  const q = $('busca').value.trim().toLowerCase(), so = $('soDiv').checked;
+  const ordem = i => i.contado === null ? 1 : (i.contado !== i.saldo ? 0 : 2);
+  const lista = itens
+    .filter(i => !q || (i.codigo + ' ' + i.descricao).toLowerCase().includes(q))
+    .filter(i => !so || i.contado === null || i.contado !== i.saldo)
+    .filter(i => !$('soContados').checked || i.contado !== null)
+    .sort((a, b) => ordem(a) - ordem(b) || a.codigo.localeCompare(b.codigo))
+    .slice(0, 500);
+  $('tb').innerHTML = '';
+  lista.forEach(i => {
+    const dif = i.contado === null ? null : i.contado - i.saldo;
+    const cls = dif === null ? 'nc-t' : dif === 0 ? 'ok-t' : 'div-t';
+    const tr = document.createElement('tr');
+    tr.className = 'click';
+    [i.codigo, i.descricao, i.saldo, i.contado ?? '—', dif === null ? '—' : (dif > 0 ? '+' : '') + dif].forEach((v, k) => {
+      const td = document.createElement('td'); td.textContent = v;
+      if (k >= 2) td.className = 'n'; if (k >= 3) td.classList.add(cls);
+      tr.appendChild(td);
+    });
+    tr.addEventListener('click', () => corrigir(i));
+    $('tb').appendChild(tr);
+  });
+}
+$('busca').addEventListener('input', render);
+$('soDiv').addEventListener('change', render);
+$('soContados').addEventListener('change', render);
+
+async function carregar() {
+  try {
+    const d = await api('/api/estado');
+    itens = d.itens;
+    $('resumo').textContent = `${d.resumo.total} itens · ${d.resumo.contados} contados · ${d.resumo.diverg} divergentes`;
+    render();
+  } catch (e) {}
+}
+
+// mantém o foco no campo de bipar (exceto ao mexer em outros campos)
+document.addEventListener('click', e => {
+  if (!e.target.closest('input, button, a, label, tr')) $('scan').focus();
+});
+carregar();
+setInterval(() => { if (document.activeElement === $('scan') && !$('scan').value) carregar(); }, 5000); // vê o que outros PCs bipararam
+</script>
+</body>
+</html>

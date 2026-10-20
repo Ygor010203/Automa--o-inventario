@@ -1,0 +1,18 @@
+# Inventário com leitor USB (Node.js)
+
+## Rodar
+    npm install
+    npm start
+Abra http://localhost:3000. Outros PCs da rede usam o endereço "Na rede da empresa" que aparece no terminal.
+
+## Fluxo
+1. Exporte do Protheus o CSV com: codigo;descricao;saldo (ou B1_COD;B1_DESC;B2_QATU).
+2. Clique em "Importar CSV do Protheus".
+3. "Baixar etiquetas (PDF)", imprima e cole nos itens (etiqueta de poliéster/vinil).
+4. Bipe. Cada bip soma a quantidade do campo "Qtd por bip" (padrão 1).
+5. "Exportar planilha (.xlsx)": divergentes em vermelho, não contados em cinza, aba de log.
+
+## Notas
+- A contagem fica em data.json (faça backup). Apague o arquivo para recomeçar do zero.
+- O leitor deve estar em modo "teclado USB" (HID) com Enter no final.
+- Não grava no Protheus: importe a planilha pela rotina de inventário.

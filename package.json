@@ -1,0 +1,14 @@
+{
+  "name": "inventario-qr",
+  "version": "1.0.0",
+  "description": "Coletor de inventário com leitor USB, integrado por CSV ao Protheus",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "express": "^4.19.2",
+    "pdfkit": "^0.15.0",
+    "qrcode": "^1.5.3"
+  }
+}
